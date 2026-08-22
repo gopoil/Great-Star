@@ -45,7 +45,7 @@ index.html            채팅창 한 장짜리 (아이메시지 스타일, 다크
     재무관리팀.md      자산 현황, 지출 정리, 예산
     카피라이팅실.md    메일·공지·SNS 문구
   업무기록/           날짜별 업무 로그 (마리코가 직접 남김)
-  산출물/             마리코가 만든 문서 (git에는 올리지 않음)
+  산출물/             마리코가 만든 문서
 ```
 
 ## 채팅창에서 되는 것
@@ -55,6 +55,48 @@ index.html            채팅창 한 장짜리 (아이메시지 스타일, 다크
 - 길어지면 **멈춤** 버튼으로 중간에 끊을 수 있습니다.
 - 상단 이름을 누르면 프로필 카드, 왼쪽 ☰ 를 누르면 부서 목록과 **새 대화** 버튼이 나옵니다.
 - 대화는 이어집니다. 새 대화를 누르기 전까지 앞의 내용을 기억합니다.
+
+## 마리코가 만든 것 계속 쌓아 두기
+
+마리코의 결과물은 전부 `마리코/` 폴더 안에 파일로 남습니다. 이 폴더만 챙기면 됩니다.
+
+### 방법 1 — iCloud에 두고 모든 기기에서 보기
+
+`Great-Star` 폴더째로 iCloud Drive에 옮기면 끝입니다. 맥·아이패드·아이폰에서 자동으로 동기화됩니다.
+
+```bash
+mv ~/Great-Star ~/Library/Mobile\ Documents/com~apple~CloudDocs/Great-Star
+cd ~/Library/Mobile\ Documents/com~apple~CloudDocs/Great-Star
+python3 server.py
+```
+
+앞으로는 Finder 사이드바의 **iCloud Drive → Great-Star → 마리코** 에서 바로 열어 보면 됩니다.
+드롭박스나 구글 드라이브를 쓰셔도 방식은 같습니다. 폴더를 그쪽으로 옮기고 거기서 실행하면 됩니다.
+
+### 방법 2 — git으로 기록 남기고 GitHub에 백업
+
+언제 무엇이 바뀌었는지 남고, 실수로 지워도 되돌릴 수 있습니다.
+
+```bash
+MARIKO_AUTOSAVE=commit python3 server.py     # 내 컴퓨터에만 기록
+MARIKO_AUTOSAVE=push   python3 server.py     # GitHub까지 올리기
+```
+
+대화가 한 번 끝날 때마다 `마리코/` 폴더의 변경사항이 `마리코 자동 저장 2026-08-22 14:33` 같은
+이름으로 저장됩니다. 바뀐 게 없으면 아무 일도 하지 않습니다.
+`server.py`나 `index.html` 같은 코드는 건드리지 않고, `마리코/` 폴더만 저장합니다.
+
+지난 기록을 보려면:
+
+```bash
+git log --oneline -- 마리코/          # 언제 무엇이 저장됐는지
+git show <커밋번호>                    # 그때 바뀐 내용
+```
+
+### 둘 다 쓰기
+
+iCloud에 폴더를 두고 `MARIKO_AUTOSAVE=commit`으로 실행하면, 기기 간 동기화와 되돌리기가 같이 됩니다.
+가장 무난한 조합입니다.
 
 ## 내 비서로 바꾸기
 
@@ -75,6 +117,7 @@ index.html            채팅창 한 장짜리 (아이메시지 스타일, 다크
 | `MARIKO_DIR` | `마리코` | 비서 폴더 이름 |
 | `MARIKO_PERMISSION_MODE` | `acceptEdits` | cli 백엔드 권한 모드 |
 | `MARIKO_CLAUDE_BIN` | 자동 탐색 | `claude` 실행 파일 위치를 직접 지정할 때 |
+| `MARIKO_AUTOSAVE` | 꺼짐 | `commit` = 대화가 끝날 때마다 git에 기록, `push` = GitHub까지 |
 | `MARIKO_TIMEOUT` | `300` | 한 번의 응답 제한 시간(초) |
 
 ## 알아 두실 것

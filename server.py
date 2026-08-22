@@ -45,6 +45,8 @@ PORT = int(os.environ.get("MARIKO_PORT", "8765"))
 MODEL = os.environ.get("MARIKO_MODEL", "claude-opus-5")
 PERMISSION_MODE = os.environ.get("MARIKO_PERMISSION_MODE", "acceptEdits")
 TIMEOUT = float(os.environ.get("MARIKO_TIMEOUT", "300"))
+# "" 끄기 / "commit" 저장만 / "push" 저장하고 GitHub까지
+AUTOSAVE = os.environ.get("MARIKO_AUTOSAVE", "").strip().lower()
 
 MAX_BODY = 256 * 1024
 
@@ -371,6 +373,47 @@ def stream_demo(session: Session, message: str):
 BACKENDS = {"cli": stream_cli, "api": stream_api, "demo": stream_demo}
 
 
+# ------------------------------------------------------------- 자동 저장
+
+def _git(*args) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(ROOT), *args],
+        capture_output=True, text=True, timeout=120,
+    )
+
+
+def autosave() -> None:
+    """마리코가 만든 것을 git에 남긴다. MARIKO_AUTOSAVE가 켜져 있을 때만."""
+    if AUTOSAVE not in ("1", "on", "true", "commit", "push"):
+        return
+    if not (ROOT / ".git").exists():
+        print("[마리코] git 저장소가 아니라 자동 저장을 건너뜁니다.", file=sys.stderr)
+        return
+
+    try:
+        _git("add", "--", str(ASSISTANT_DIR))
+        # 스테이지에 올라온 게 없으면 커밋할 것도 없다.
+        if _git("diff", "--cached", "--quiet", "--", str(ASSISTANT_DIR)).returncode == 0:
+            return
+
+        stamp = time.strftime("%Y-%m-%d %H:%M")
+        done = _git("commit", "-m", f"마리코 자동 저장 {stamp}",
+                    "--", str(ASSISTANT_DIR))
+        if done.returncode != 0:
+            print(f"[마리코] 자동 저장 실패: {done.stderr.strip()}", file=sys.stderr)
+            return
+        print(f"[마리코] 저장했습니다 ({stamp})")
+
+        if AUTOSAVE == "push":
+            pushed = _git("push")
+            if pushed.returncode != 0:
+                print(f"[마리코] 올리기 실패: {pushed.stderr.strip()}", file=sys.stderr)
+            else:
+                print("[마리코] GitHub에 올렸습니다.")
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"[마리코] 자동 저장 중 오류: {exc}", file=sys.stderr)
+
+
 # ------------------------------------------------------------------ HTTP
 
 class Handler(BaseHTTPRequestHandler):
@@ -503,6 +546,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif event == "error":
                     emit("error", {"message": payload})
             emit("done", {"session": session.id})
+            threading.Thread(target=autosave, daemon=True).start()
         except (BrokenPipeError, ConnectionResetError):
             # 채팅창이 닫혔거나 멈춤을 눌렀다. 돌던 작업도 같이 끊는다.
             session.cancel()
@@ -528,6 +572,10 @@ def main() -> None:
         print("  claude 명령을 찾지 못했습니다. Claude Code를 설치하고 로그인하면")
         print("  마리코가 실제로 일합니다:  npm install -g @anthropic-ai/claude-code")
         print("  설치돼 있는데도 이 문구가 보이면:  MARIKO_CLAUDE_BIN=$(which claude) python3 server.py")
+    if AUTOSAVE in ("1", "on", "true", "commit"):
+        print("  자동 저장 켜짐 — 대화가 끝날 때마다 git에 기록합니다")
+    elif AUTOSAVE == "push":
+        print("  자동 저장 켜짐 — 대화가 끝날 때마다 git에 기록하고 GitHub에 올립니다")
     print(f"  http://{HOST}:{PORT}\n")
     try:
         server.serve_forever()
