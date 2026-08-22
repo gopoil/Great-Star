@@ -74,6 +74,7 @@ index.html            채팅창 한 장짜리 (아이메시지 스타일, 다크
 | `MARIKO_MODEL` | `claude-opus-5` | 사용할 모델 |
 | `MARIKO_DIR` | `마리코` | 비서 폴더 이름 |
 | `MARIKO_PERMISSION_MODE` | `acceptEdits` | cli 백엔드 권한 모드 |
+| `MARIKO_CLAUDE_BIN` | 자동 탐색 | `claude` 실행 파일 위치를 직접 지정할 때 |
 | `MARIKO_TIMEOUT` | `300` | 한 번의 응답 제한 시간(초) |
 
 ## 알아 두실 것

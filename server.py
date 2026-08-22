@@ -61,11 +61,39 @@ def _has_sdk() -> bool:
     return True
 
 
+# claude를 설치하고도 터미널을 새로 열지 않아 PATH에 안 잡히는 경우가 흔하다.
+# 그래서 PATH에 없으면 흔한 설치 위치까지 찾아본다.
+CLAUDE_CANDIDATES = (
+    "~/.local/bin/claude",
+    "~/.claude/local/claude",
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+)
+
+
+def find_claude() -> str | None:
+    override = os.environ.get("MARIKO_CLAUDE_BIN")
+    if override:
+        path = os.path.expanduser(override)
+        return path if os.access(path, os.X_OK) else None
+    found = shutil.which("claude")
+    if found:
+        return found
+    for candidate in CLAUDE_CANDIDATES:
+        path = os.path.expanduser(candidate)
+        if os.access(path, os.X_OK):
+            return path
+    return None
+
+
+CLAUDE_BIN = find_claude()
+
+
 def pick_backend() -> str:
     want = os.environ.get("MARIKO_BACKEND", "auto").strip().lower()
     if want in ("cli", "api", "demo"):
         return want
-    if shutil.which("claude"):
+    if CLAUDE_BIN:
         return "cli"
     if _has_sdk():
         return "api"
@@ -144,8 +172,12 @@ def _drain(stream, sink: list) -> None:
 
 def stream_cli(session: Session, message: str):
     """`claude -p`를 실행하고 나오는 stream-json을 이벤트로 바꿔 흘려보낸다."""
+    if not CLAUDE_BIN:
+        yield ("error", "claude 명령을 찾지 못했습니다.")
+        return
+
     cmd = [
-        "claude",
+        CLAUDE_BIN,
         "-p",
         "--output-format", "stream-json",
         "--include-partial-messages",
@@ -487,11 +519,15 @@ def main() -> None:
     note = {
         "cli": f"claude CLI · {MODEL} · 권한 {PERMISSION_MODE}",
         "api": f"Claude API · {MODEL}",
-        "demo": "데모 모드 (claude CLI나 ANTHROPIC_API_KEY가 없습니다)",
+        "demo": "데모 모드 — 정해진 문구로만 답합니다",
     }[BACKEND]
 
     print(f"  {profile.get('name')} · {profile.get('title')}")
     print(f"  {note}")
+    if BACKEND == "demo":
+        print("  claude 명령을 찾지 못했습니다. Claude Code를 설치하고 로그인하면")
+        print("  마리코가 실제로 일합니다:  npm install -g @anthropic-ai/claude-code")
+        print("  설치돼 있는데도 이 문구가 보이면:  MARIKO_CLAUDE_BIN=$(which claude) python3 server.py")
     print(f"  http://{HOST}:{PORT}\n")
     try:
         server.serve_forever()
