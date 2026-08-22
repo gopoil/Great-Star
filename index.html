@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f7">
+<title>마리코 · 비서실장</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --header: rgba(247,247,247,.82);
+    --line: rgba(0,0,0,.12);
+    --text: #000000;
+    --muted: #8a8a8e;
+    --bubble-in: #e9e9eb;
+    --bubble-in-text: #000000;
+    --blue: #0a7cff;
+    --blue-deep: #0563d1;
+    --field: #ffffff;
+    --field-line: rgba(0,0,0,.16);
+    --sheet: #ffffff;
+    --scrim: rgba(0,0,0,.45);
+    --shadow: 0 24px 60px rgba(0,0,0,.28);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --header: rgba(28,28,30,.82);
+      --line: rgba(255,255,255,.14);
+      --text: #ffffff;
+      --muted: #98989f;
+      --bubble-in: #26262a;
+      --bubble-in-text: #ffffff;
+      --field: #1c1c1e;
+      --field-line: rgba(255,255,255,.18);
+      --sheet: #1c1c1e;
+      --scrim: rgba(0,0,0,.6);
+      --shadow: 0 24px 60px rgba(0,0,0,.6);
+    }
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 400 17px/1.42 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+          Pretendard, "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* 넓은 화면에서는 메신저 앱처럼 가운데 한 칸으로 */
+  #app {
+    display: flex; flex-direction: column;
+    height: 100dvh; width: 100%;
+    max-width: 560px; margin: 0 auto;
+    border-left: 1px solid transparent; border-right: 1px solid transparent;
+  }
+  @media (min-width: 600px) {
+    #app { border-left-color: var(--line); border-right-color: var(--line); }
+  }
+
+  /* ---------------------------------------------------------- 헤더 */
+  header {
+    flex: none; position: relative; z-index: 3;
+    display: grid; grid-template-columns: 56px 1fr 56px; align-items: center;
+    padding: 6px 8px calc(6px + env(safe-area-inset-top)) 8px;
+    padding-top: calc(6px + env(safe-area-inset-top));
+    background: var(--header);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: .5px solid var(--line);
+  }
+  .icon-btn {
+    display: grid; place-items: center;
+    width: 44px; height: 44px; padding: 0;
+    border: 0; border-radius: 22px; background: none;
+    color: var(--blue); cursor: pointer;
+  }
+  .icon-btn:active { background: rgba(10,124,255,.12); }
+  .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+  .who {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 2px 4px; border: 0; background: none; cursor: pointer; color: inherit;
+  }
+  .who:active { opacity: .6; }
+  .avatar {
+    display: grid; place-items: center;
+    border-radius: 50%;
+    background: linear-gradient(160deg, #6c8cff, #3d5afe 55%, #2438c8);
+    color: #fff; font-weight: 600; letter-spacing: -.02em;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  .who .avatar { width: 34px; height: 34px; font-size: 15px; }
+  .who .name { display: flex; align-items: center; gap: 3px; font-size: 12px; font-weight: 500; }
+  .who .name svg { width: 9px; height: 9px; stroke: var(--muted); stroke-width: 2.6; fill: none; }
+  .who .role { font-size: 10px; color: var(--muted); letter-spacing: -.01em; }
+
+  /* ---------------------------------------------------------- 대화 */
+  #log {
+    flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain;
+    padding: 12px 14px 4px;
+    display: flex; flex-direction: column; gap: 2px;
+    scrollbar-width: thin;
+  }
+  .daymark {
+    align-self: center; max-width: 100%; margin: 10px 0 14px;
+    font-size: 11px; color: var(--muted); font-weight: 500;
+  }
+  .daymark b { font-weight: 600; color: var(--muted); }
+
+  .row { display: flex; min-width: 0; margin-top: 2px; }
+  .row.me { justify-content: flex-end; }
+  .row.gap { margin-top: 10px; }
+
+  .bubble {
+    position: relative;
+    max-width: 78%;
+    padding: 8px 14px 9px;
+    border-radius: 20px;
+    font-size: 16.5px; line-height: 1.4;
+    word-break: break-word; white-space: pre-wrap;
+    animation: pop .18s ease-out;
+  }
+  @keyframes pop { from { transform: translateY(6px) scale(.98); opacity: 0 } }
+  @media (prefers-reduced-motion: reduce) { .bubble { animation: none } }
+
+  .row.them .bubble { background: var(--bubble-in); color: var(--bubble-in-text); border-bottom-left-radius: 6px; }
+  .row.me   .bubble { background: linear-gradient(180deg, #1a8bff, var(--blue)); color: #fff; border-bottom-right-radius: 6px; }
+  .row.them.mid .bubble, .row.them.top .bubble { border-bottom-left-radius: 20px; }
+  .row.me.mid .bubble,   .row.me.top   .bubble { border-bottom-right-radius: 20px; }
+
+  .bubble code {
+    font: 500 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: rgba(120,120,128,.2); border-radius: 5px; padding: 1px 5px;
+  }
+  .row.me .bubble code { background: rgba(255,255,255,.22); }
+  .bubble a { color: inherit; }
+
+  .status {
+    align-self: flex-start; max-width: 100%; display: flex; align-items: center; gap: 7px;
+    margin: 6px 0 2px 6px; font-size: 12.5px; color: var(--muted);
+  }
+  .status .spin {
+    width: 11px; height: 11px; border-radius: 50%;
+    border: 1.8px solid var(--muted); border-top-color: transparent;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  .typing { display: inline-flex; gap: 4px; padding: 3px 1px; }
+  .typing i {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--muted);
+    animation: blink 1.2s infinite ease-in-out;
+  }
+  .typing i:nth-child(2) { animation-delay: .18s }
+  .typing i:nth-child(3) { animation-delay: .36s }
+  @keyframes blink { 0%, 60%, 100% { opacity: .3; transform: translateY(0) } 30% { opacity: 1; transform: translateY(-2px) } }
+
+  .failed {
+    align-self: center; max-width: 100%; margin: 8px 0;
+    font-size: 12.5px; color: #ff453a; text-align: center; word-break: break-word;
+  }
+
+  /* 멈춤 버튼 */
+  .stop-wrap { display: flex; justify-content: center; padding: 10px 0 2px; }
+  .stop {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 16px; border: .5px solid var(--field-line); border-radius: 999px;
+    background: var(--field); color: var(--text);
+    font-size: 13.5px; font-weight: 500; cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+  }
+  .stop::before { content: ""; width: 9px; height: 9px; border-radius: 2px; background: var(--text); }
+  .stop:active { opacity: .6 }
+
+  /* 추천 문구 */
+  #chips {
+    flex: none; display: flex; gap: 8px; padding: 4px 14px 8px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #chips::-webkit-scrollbar { display: none }
+  #chips button {
+    flex: none; padding: 7px 14px; border-radius: 999px;
+    border: .5px solid var(--field-line); background: var(--field); color: var(--text);
+    font-size: 13.5px; cursor: pointer; white-space: nowrap;
+  }
+  #chips button:active { background: var(--bubble-in) }
+  #chips:empty { display: none }
+
+  /* ---------------------------------------------------------- 입력 */
+  footer {
+    flex: none;
+    display: flex; align-items: flex-end; gap: 8px;
+    padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+    background: var(--header);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-top: .5px solid var(--line);
+  }
+  .field {
+    flex: 1; display: flex; align-items: flex-end;
+    border: .5px solid var(--field-line); border-radius: 20px;
+    background: var(--field); padding: 2px 4px 2px 14px;
+  }
+  #input {
+    flex: 1; border: 0; outline: 0; resize: none; background: none; color: var(--text);
+    font: inherit; font-size: 16.5px; line-height: 1.35;
+    padding: 7px 0 8px; max-height: 132px;
+  }
+  #input::placeholder { color: var(--muted) }
+  #send {
+    flex: none; width: 30px; height: 30px; margin: 0 0 3px;
+    border: 0; border-radius: 50%; background: var(--blue); color: #fff;
+    display: grid; place-items: center; cursor: pointer;
+    transition: transform .12s ease, opacity .12s ease;
+  }
+  #send:disabled { opacity: .25; transform: scale(.9); cursor: default }
+  #send svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round }
+
+  /* ---------------------------------------------------------- 시트/카드 */
+  .scrim {
+    position: fixed; inset: 0; z-index: 10;
+    background: var(--scrim); backdrop-filter: blur(3px);
+    display: grid; place-items: center; padding: 20px;
+    opacity: 0; pointer-events: none; transition: opacity .18s ease;
+  }
+  .scrim.on { opacity: 1; pointer-events: auto }
+
+  .card {
+    width: 100%; max-width: 340px; padding: 26px 22px 18px;
+    border-radius: 26px; background: var(--sheet); box-shadow: var(--shadow);
+    text-align: center; transform: scale(.94); transition: transform .18s ease;
+  }
+  .scrim.on .card { transform: scale(1) }
+  .card .avatar { width: 92px; height: 92px; font-size: 38px; margin: 0 auto 14px; }
+  .card h2 { margin: 0 0 4px; font-size: 24px; font-weight: 700; letter-spacing: -.02em }
+  .card .role { margin: 0 0 14px; color: var(--blue); font-size: 14px; font-weight: 600 }
+  .card p.desc { margin: 0 0 20px; font-size: 14px; line-height: 1.55; color: var(--muted); white-space: pre-line }
+  .primary {
+    width: 100%; padding: 13px; border: 0; border-radius: 14px;
+    background: var(--blue-deep); color: #fff; font-size: 16px; font-weight: 600; cursor: pointer;
+    font-family: inherit;
+  }
+  .primary:active { opacity: .8 }
+
+  /* 왼쪽 정보 시트 */
+  .sheet {
+    position: absolute; left: 0; top: 0; bottom: 0; width: min(320px, 86%);
+    background: var(--sheet); box-shadow: var(--shadow);
+    transform: translateX(-100%); transition: transform .22s cubic-bezier(.32,.72,0,1);
+    padding: calc(20px + env(safe-area-inset-top)) 20px 20px;
+    overflow-y: auto; text-align: left;
+  }
+  .scrim.on .sheet { transform: translateX(0) }
+  .sheet h3 { margin: 0 0 2px; font-size: 20px; letter-spacing: -.02em }
+  .sheet .role { margin: 0 0 20px; font-size: 13px; color: var(--muted) }
+  .sheet h4 { margin: 20px 0 8px; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .04em }
+  .dept { padding: 11px 13px; border-radius: 12px; background: var(--bubble-in); margin-bottom: 7px }
+  .dept b { display: block; font-size: 14.5px; font-weight: 600; margin-bottom: 2px }
+  .dept span { font-size: 12.5px; color: var(--muted) }
+  .badge {
+    display: inline-block; padding: 4px 10px; border-radius: 999px;
+    background: var(--bubble-in); font-size: 12px; color: var(--muted);
+  }
+  .sheet .primary { margin-top: 22px }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header>
+    <button class="icon-btn" id="menuBtn" aria-label="정보">
+      <svg viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+    </button>
+
+    <button class="who" id="whoBtn">
+      <div class="avatar" id="hdrAvatar">·</div>
+      <div class="name"><span id="hdrName">비서</span>
+        <svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
+      <div class="role" id="hdrRole"></div>
+    </button>
+
+    <button class="icon-btn" id="newBtn" aria-label="새 대화">
+      <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+    </button>
+  </header>
+
+  <div id="log"></div>
+  <div id="chips"></div>
+
+  <footer>
+    <div class="field">
+      <textarea id="input" rows="1" placeholder="메시지" autocomplete="off"></textarea>
+    </div>
+    <button id="send" disabled aria-label="보내기">
+      <svg viewBox="0 0 24 24"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>
+    </button>
+  </footer>
+</div>
+
+<!-- 프로필 카드 -->
+<div class="scrim" id="cardScrim">
+  <div class="card" role="dialog" aria-modal="true">
+    <div class="avatar" id="cardAvatar">·</div>
+    <h2 id="cardName">비서</h2>
+    <p class="role" id="cardRole"></p>
+    <p class="desc" id="cardDesc"></p>
+    <button class="primary" data-close>닫기</button>
+  </div>
+</div>
+
+<!-- 정보 시트 -->
+<div class="scrim" id="sheetScrim">
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h3 id="sheetName">비서</h3>
+    <p class="role" id="sheetRole"></p>
+    <span class="badge" id="sheetBackend">연결 확인 중</span>
+    <h4>부서</h4>
+    <div id="sheetDepts"></div>
+    <button class="primary" id="resetBtn">새 대화 시작</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const log = $("log"), input = $("input"), sendBtn = $("send"), chips = $("chips");
+
+  let profile = null;
+  let sessionId = null;
+  let busy = false;
+  let abort = null;
+  let lastSide = null;
+
+  /* ------------------------------------------------- 렌더링 도우미 */
+
+  const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // 채팅에 어울리는 만큼만: 굵게, 인라인 코드, 불릿, 줄바꿈.
+  function format(text) {
+    let html = escapeHtml(text);
+    html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+    html = html.replace(/^[-*]\s+/gm, "· ");
+    return html;
+  }
+
+  function dayMark() {
+    const d = new Date();
+    const days = ["일", "월", "화", "수", "목", "금", "토"];
+    const h = d.getHours();
+    const ampm = h < 12 ? "오전" : "오후";
+    const h12 = h % 12 || 12;
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const el = document.createElement("div");
+    el.className = "daymark";
+    el.innerHTML = `<b>${d.getMonth() + 1}월 ${d.getDate()}일 (${days[d.getDay()]})</b> ${ampm} ${h12}:${mm}`;
+    log.appendChild(el);
+  }
+
+  function atBottom() {
+    return log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  }
+  function toBottom(force) {
+    if (force || atBottom()) log.scrollTop = log.scrollHeight;
+  }
+
+  function addBubble(side, text) {
+    const row = document.createElement("div");
+    row.className = "row " + (side === "me" ? "me" : "them") + (lastSide === side ? "" : " gap");
+    lastSide = side;
+    const b = document.createElement("div");
+    b.className = "bubble";
+    b.innerHTML = text ? format(text) : "";
+    row.appendChild(b);
+    log.appendChild(row);
+    toBottom(side === "me");
+    return b;
+  }
+
+  function addTyping() {
+    const b = addBubble("them", "");
+    b.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>';
+    return b;
+  }
+
+  function addFailure(msg) {
+    const el = document.createElement("div");
+    el.className = "failed";
+    el.textContent = msg;
+    log.appendChild(el);
+    toBottom(true);
+  }
+
+  /* ------------------------------------------------------ 시트 제어 */
+
+  const openScrim = (el) => el.classList.add("on");
+  const closeScrim = (el) => el.classList.remove("on");
+
+  document.querySelectorAll(".scrim").forEach((scrim) => {
+    scrim.addEventListener("click", (e) => {
+      if (e.target === scrim || e.target.hasAttribute("data-close")) closeScrim(scrim);
+    });
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") document.querySelectorAll(".scrim.on").forEach(closeScrim);
+  });
+
+  $("whoBtn").onclick = () => openScrim($("cardScrim"));
+  $("menuBtn").onclick = () => openScrim($("sheetScrim"));
+  $("newBtn").onclick = () => reset();
+  $("resetBtn").onclick = () => { closeScrim($("sheetScrim")); reset(); };
+
+  /* -------------------------------------------------------- 프로필 */
+
+  async function loadProfile() {
+    const res = await fetch("/api/profile");
+    profile = await res.json();
+
+    const initial = profile.avatar || (profile.name || "비")[0];
+    $("hdrAvatar").textContent = initial;
+    $("cardAvatar").textContent = initial;
+    $("hdrName").textContent = profile.name || "비서";
+    $("cardName").textContent = profile.name || "비서";
+    $("sheetName").textContent = profile.name || "비서";
+    $("hdrRole").textContent = profile.title || "";
+    $("cardRole").textContent = profile.title || "";
+    $("sheetRole").textContent = profile.title || "";
+    $("cardDesc").textContent = profile.description || "";
+    document.title = `${profile.name} · ${(profile.title || "").split("·").pop().trim()}`;
+
+    const label = {
+      cli: `claude CLI · ${profile.model || ""}`,
+      api: `Claude API · ${profile.model || ""}`,
+      demo: "데모 모드 · 정해진 문구로 답합니다",
+    }[profile.backend] || profile.backend;
+    $("sheetBackend").textContent = label;
+
+    $("sheetDepts").innerHTML = (profile.departments || []).map((d) =>
+      `<div class="dept"><b>${escapeHtml(d.name)}</b><span>${escapeHtml(d.desc || "")}</span></div>`
+    ).join("");
+
+    chips.innerHTML = "";
+    (profile.suggestions || []).forEach((text) => {
+      const b = document.createElement("button");
+      b.textContent = text;
+      b.onclick = () => { input.value = text; resize(); send(); };
+      chips.appendChild(b);
+    });
+  }
+
+  function reset() {
+    if (abort) abort.abort();
+    if (sessionId) {
+      fetch("/api/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionId }),
+      }).catch(() => {});
+    }
+    sessionId = null;
+    lastSide = null;
+    log.innerHTML = "";
+    setBusy(false);
+    dayMark();
+    if (profile && profile.greeting) addBubble("them", profile.greeting);
+    chips.style.display = "";
+    input.focus();
+  }
+
+  /* ---------------------------------------------------------- 전송 */
+
+  function setBusy(on) {
+    busy = on;
+    sendBtn.disabled = on || !input.value.trim();
+    input.readOnly = on;
+  }
+
+  function resize() {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 132) + "px";
+    sendBtn.disabled = busy || !input.value.trim();
+  }
+
+  input.addEventListener("input", resize);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      send();
+    }
+  });
+  sendBtn.onclick = () => send();
+
+  async function send() {
+    const text = input.value.trim();
+    if (!text || busy) return;
+
+    input.value = "";
+    resize();
+    chips.style.display = "none";
+    addBubble("me", text);
+    setBusy(true);
+
+    // 멈춤 버튼
+    const stopWrap = document.createElement("div");
+    stopWrap.className = "stop-wrap";
+    const stopBtn = document.createElement("button");
+    stopBtn.className = "stop";
+    stopBtn.textContent = "멈춤";
+    stopWrap.appendChild(stopBtn);
+    log.appendChild(stopWrap);
+
+    const typing = addTyping();
+    let statusEl = null;
+    let bubble = null;
+    let acc = "";
+    let stopped = false;
+
+    abort = new AbortController();
+    stopBtn.onclick = () => {
+      stopped = true;
+      abort.abort();
+      if (sessionId) {
+        fetch("/api/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ session: sessionId }),
+        }).catch(() => {});
+      }
+    };
+
+    const dropTyping = () => {
+      if (typing) {
+        const row = typing.parentElement;
+        if (row && !bubble) { row.remove(); }
+      }
+    };
+
+    const onEvent = (name, data) => {
+      if (name === "open") {
+        sessionId = data.session;
+      } else if (name === "status") {
+        if (!bubble) {
+          if (!statusEl) {
+            statusEl = document.createElement("div");
+            statusEl.className = "status";
+            statusEl.innerHTML = '<span class="spin"></span><span></span>';
+            log.insertBefore(statusEl, stopWrap);
+          }
+          statusEl.lastElementChild.textContent = data.text + "…";
+          toBottom();
+        }
+      } else if (name === "delta") {
+        if (!bubble) {
+          if (statusEl) { statusEl.remove(); statusEl = null; }
+          bubble = typing;
+          bubble.innerHTML = "";
+        }
+        acc += data.text;
+        bubble.innerHTML = format(acc);
+        toBottom();
+      } else if (name === "error") {
+        addFailure(data.message);
+      }
+    };
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionId, message: text }),
+        signal: abort.signal,
+      });
+      if (!res.ok || !res.body) throw new Error("서버 응답이 올바르지 않습니다.");
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const raw = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          let name = "message", payload = "";
+          for (const line of raw.split("\n")) {
+            if (line.startsWith("event:")) name = line.slice(6).trim();
+            else if (line.startsWith("data:")) payload += line.slice(5).trim();
+          }
+          if (!payload) continue;
+          try { onEvent(name, JSON.parse(payload)); } catch (_) {}
+        }
+      }
+    } catch (err) {
+      if (!stopped) addFailure("연결이 끊어졌습니다. 서버가 켜져 있는지 확인해 주세요.");
+    } finally {
+      if (statusEl) statusEl.remove();
+      dropTyping();
+      if (bubble && !acc.trim()) bubble.parentElement.remove();
+      if (stopped && acc.trim()) {
+        const mark = document.createElement("div");
+        mark.className = "failed";
+        mark.textContent = "멈췄습니다.";
+        log.appendChild(mark);
+      }
+      stopWrap.remove();
+      abort = null;
+      setBusy(false);
+      toBottom();
+      input.focus();
+    }
+  }
+
+  /* ---------------------------------------------------------- 시작 */
+
+  loadProfile()
+    .then(() => reset())
+    .catch(() => {
+      dayMark();
+      addFailure("서버에 연결하지 못했습니다. python3 server.py 를 실행해 주세요.");
+    });
+})();
+</script>
+</body>
+</html>
