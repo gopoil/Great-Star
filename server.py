@@ -51,6 +51,28 @@ AUTOSAVE = os.environ.get("MARIKO_AUTOSAVE", "").strip().lower()
 MAX_BODY = 256 * 1024
 
 
+def extra_dirs() -> list[str]:
+    """마리코가 열어볼 수 있는 폴더. 기본은 비서 폴더 안뿐이다.
+
+    MARIKO_ADD_DIR="~/Desktop:~/Documents/Obsidian" 처럼 콜론이나 쉼표로 나눠 적는다.
+    """
+    raw = os.environ.get("MARIKO_ADD_DIR", "")
+    found = []
+    for chunk in raw.replace(",", ":").split(":"):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        path = os.path.abspath(os.path.expanduser(chunk))
+        if os.path.isdir(path):
+            found.append(path)
+        else:
+            print(f"[마리코] 그런 폴더가 없어 건너뜁니다: {chunk}", file=sys.stderr)
+    return found
+
+
+EXTRA_DIRS = extra_dirs()
+
+
 # ---------------------------------------------------------------- 백엔드 선택
 
 def _has_sdk() -> bool:
@@ -189,6 +211,8 @@ def stream_cli(session: Session, message: str):
     ]
     if session.cli_session_id:
         cmd += ["--resume", session.cli_session_id]
+    if EXTRA_DIRS:
+        cmd += ["--add-dir", *EXTRA_DIRS]
 
     try:
         proc = subprocess.Popen(
@@ -572,6 +596,8 @@ def main() -> None:
         print("  claude 명령을 찾지 못했습니다. Claude Code를 설치하고 로그인하면")
         print("  마리코가 실제로 일합니다:  npm install -g @anthropic-ai/claude-code")
         print("  설치돼 있는데도 이 문구가 보이면:  MARIKO_CLAUDE_BIN=$(which claude) python3 server.py")
+    if EXTRA_DIRS:
+        print("  열어둔 폴더: " + ", ".join(EXTRA_DIRS))
     if AUTOSAVE in ("1", "on", "true", "commit"):
         print("  자동 저장 켜짐 — 대화가 끝날 때마다 git에 기록합니다")
     elif AUTOSAVE == "push":
