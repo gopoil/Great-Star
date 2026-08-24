@@ -278,6 +278,26 @@ TOOL_LABELS = {
 }
 
 
+def tool_detail(data) -> str:
+    """도구에 넘어간 값에서 '무엇을 대상으로 하는지' 한 조각만 뽑는다."""
+    if not isinstance(data, dict):
+        return ""
+
+    def short(text, limit=64):
+        text = " ".join(str(text).split())
+        return text if len(text) <= limit else text[: limit - 1] + "…"
+
+    for key in ("file_path", "notebook_path", "path"):
+        if data.get(key):
+            return os.path.basename(str(data[key])) or short(data[key])
+    if data.get("command"):
+        return short(data.get("description") or data["command"])
+    for key in ("pattern", "query", "url", "description", "prompt"):
+        if data.get(key):
+            return short(data[key])
+    return ""
+
+
 def _drain(stream, sink: list) -> None:
     try:
         for line in stream:
@@ -366,16 +386,18 @@ def stream_cli(session: Session, message: str):
                     if delta.get("type") == "text_delta" and delta.get("text"):
                         saw_text = True
                         yield ("delta", delta["text"])
-                elif etype == "content_block_start":
-                    block = event.get("content_block") or {}
-                    if block.get("type") == "tool_use":
-                        name = block.get("name", "")
-                        yield ("status", TOOL_LABELS.get(name, "작업하는 중"))
 
             elif kind == "assistant":
+                # 이 시점의 tool_use 블록에는 넘길 값까지 다 들어 있다.
                 for block in (obj.get("message") or {}).get("content") or []:
                     if block.get("type") == "text" and block.get("text"):
                         fallback += block["text"]
+                    elif block.get("type") == "tool_use":
+                        name = block.get("name", "")
+                        yield ("status", {
+                            "label": TOOL_LABELS.get(name, "작업하는 중"),
+                            "detail": tool_detail(block.get("input")),
+                        })
 
             elif kind == "result":
                 if obj.get("session_id"):
@@ -722,7 +744,9 @@ class Handler(BaseHTTPRequestHandler):
                 if event == "delta":
                     emit("delta", {"text": payload})
                 elif event == "status":
-                    emit("status", {"text": payload})
+                    if isinstance(payload, str):
+                        payload = {"label": payload, "detail": ""}
+                    emit("status", payload)
                 elif event == "error":
                     emit("error", {"message": payload})
             emit("done", {"session": session.id})

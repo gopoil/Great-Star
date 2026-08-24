@@ -140,16 +140,43 @@
   .row.me .bubble code { background: rgba(255,255,255,.22); }
   .bubble a { color: inherit; }
 
-  .status {
-    align-self: flex-start; max-width: 100%; display: flex; align-items: center; gap: 7px;
-    margin: 6px 0 2px 6px; font-size: 12.5px; color: var(--muted);
+  /* 일하는 중 패널 */
+  .work {
+    align-self: flex-start; width: 100%; max-width: 88%;
+    margin: 8px 0 2px; border-radius: 16px;
+    background: var(--bubble-in); overflow: hidden;
+    animation: pop .18s ease-out;
   }
-  .status .spin {
-    width: 11px; height: 11px; border-radius: 50%;
+  .work-head {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 10px 13px; border: 0; background: none;
+    font: inherit; font-size: 13px; color: var(--muted);
+    text-align: left; cursor: pointer;
+  }
+  .work-head b { font-weight: 600; font-size: 13px; color: var(--text) }
+  .work-head .elapsed { margin-left: auto; font-variant-numeric: tabular-nums }
+  .work-head .chev {
+    width: 9px; flex: none; transition: transform .15s ease; opacity: .6;
+  }
+  .work.open .work-head .chev { transform: rotate(180deg) }
+  .work-steps { display: none; padding: 0 13px 11px 13px }
+  .work.open .work-steps { display: block }
+  .work-steps:empty { display: none }
+  .step {
+    display: flex; gap: 6px; padding: 3px 0 3px 19px;
+    font-size: 13px; line-height: 1.4; color: var(--muted);
+  }
+  .step + .step { border-top: .5px solid var(--line) }
+  .step em { font-style: normal; color: var(--text); opacity: .7; word-break: break-all }
+
+  .spin {
+    width: 12px; height: 12px; flex: none; border-radius: 50%;
     border: 1.8px solid var(--muted); border-top-color: transparent;
     animation: spin .7s linear infinite;
   }
+  .tick { width: 12px; flex: none; text-align: center; color: var(--muted) }
   @keyframes spin { to { transform: rotate(360deg) } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2s } }
 
   .typing { display: inline-flex; gap: 4px; padding: 3px 1px; }
   .typing i {
@@ -591,11 +618,68 @@
     stopWrap.appendChild(stopBtn);
     log.appendChild(stopWrap);
 
-    const typing = addTyping();
-    let statusEl = null;
+    let typingRow = addTyping().parentElement;
     let bubble = null;
     let acc = "";
     let stopped = false;
+
+    // ---- 일하는 중 패널 -------------------------------------------------
+    // 빨리 끝나는 말에는 점 세 개로 충분하다. 오래 걸리거나 도구를 쓰기
+    // 시작하면 그때 무엇을 하고 있는지 펼쳐 보여 준다.
+    const startedAt = Date.now();
+    let workEl = null, stepCount = 0, ticker = null;
+
+    const elapsed = () => {
+      const sec = Math.round((Date.now() - startedAt) / 1000);
+      return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
+    };
+
+    function openWork() {
+      if (workEl) return workEl;
+      if (typingRow) { typingRow.remove(); typingRow = null; }
+      workEl = document.createElement("div");
+      workEl.className = "work open";
+      workEl.innerHTML =
+        '<button class="work-head" type="button">' +
+          '<span class="spin"></span><b>일하는 중</b>' +
+          '<span class="elapsed">0:00</span>' +
+          '<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+            'stroke-width="3"><path d="M6 9l6 6 6-6"/></svg>' +
+        '</button><div class="work-steps"></div>';
+      workEl.querySelector(".work-head").onclick = () => workEl.classList.toggle("open");
+      log.insertBefore(workEl, stopWrap);
+      ticker = setInterval(() => {
+        const el = workEl && workEl.querySelector(".elapsed");
+        if (el) el.textContent = elapsed();
+      }, 1000);
+      toBottom();
+      return workEl;
+    }
+
+    function addStep(label, detail) {
+      openWork();
+      stepCount += 1;
+      const el = document.createElement("div");
+      el.className = "step";
+      el.innerHTML = "<span>" + escapeHtml(label) + "</span>" +
+        (detail ? " <em>" + escapeHtml(detail) + "</em>" : "");
+      workEl.querySelector(".work-steps").appendChild(el);
+      toBottom();
+    }
+
+    function closeWork() {
+      if (ticker) { clearInterval(ticker); ticker = null; }
+      if (!workEl) return;
+      if (!stepCount) { workEl.remove(); workEl = null; return; }
+      const head = workEl.querySelector(".work-head");
+      head.querySelector(".spin").outerHTML = '<span class="tick">✓</span>';
+      head.querySelector("b").textContent = `작업 ${stepCount}단계`;
+      head.querySelector(".elapsed").textContent = elapsed();
+      workEl.classList.remove("open");     // 접어 두고, 누르면 다시 펼쳐진다
+    }
+
+    // 2.5초 넘게 조용하면 시계를 보여 준다
+    const slowTimer = setTimeout(openWork, 2500);
 
     abort = new AbortController();
     stopBtn.onclick = () => {
@@ -610,32 +694,19 @@
       }
     };
 
-    const dropTyping = () => {
-      if (typing) {
-        const row = typing.parentElement;
-        if (row && !bubble) { row.remove(); }
-      }
-    };
-
     const onEvent = (name, data) => {
       if (name === "open") {
         sessionId = data.session;
       } else if (name === "status") {
-        if (!bubble) {
-          if (!statusEl) {
-            statusEl = document.createElement("div");
-            statusEl.className = "status";
-            statusEl.innerHTML = '<span class="spin"></span><span></span>';
-            log.insertBefore(statusEl, stopWrap);
-          }
-          statusEl.lastElementChild.textContent = data.text + "…";
-          toBottom();
-        }
+        clearTimeout(slowTimer);
+        addStep(data.label || data.text || "작업하는 중", data.detail || "");
       } else if (name === "delta") {
         if (!bubble) {
-          if (statusEl) { statusEl.remove(); statusEl = null; }
-          bubble = typing;
-          bubble.innerHTML = "";
+          clearTimeout(slowTimer);
+          closeWork();
+          if (typingRow) { typingRow.remove(); typingRow = null; }
+          bubble = addBubble("them", "");
+          log.appendChild(stopWrap);   // 멈춤 버튼은 항상 맨 아래에
         }
         acc += data.text;
         bubble.innerHTML = format(acc);
@@ -680,8 +751,9 @@
     } catch (err) {
       if (!stopped) addFailure("연결이 끊어졌습니다. 서버가 켜져 있는지 확인해 주세요.");
     } finally {
-      if (statusEl) statusEl.remove();
-      dropTyping();
+      clearTimeout(slowTimer);
+      closeWork();
+      if (typingRow) { typingRow.remove(); typingRow = null; }
       if (bubble && !acc.trim()) bubble.parentElement.remove();
       if (stopped && acc.trim()) {
         const mark = document.createElement("div");
