@@ -758,7 +758,17 @@ def main() -> None:
         )
 
     profile = load_profile()
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError as exc:
+        if exc.errno in (48, 98):        # 이미 쓰고 있는 포트
+            sys.exit(
+                f"[마리코] {PORT}번 자리를 이미 누가 쓰고 있습니다.\n"
+                "        마리코가 이미 켜져 있는지 확인해 보세요 (브라우저에서 "
+                f"http://localhost:{PORT}).\n"
+                "        다른 자리로 켜려면:  MARIKO_PORT=8766 python3 server.py"
+            )
+        sys.exit(f"[마리코] 서버를 열지 못했습니다: {exc}")
     server.daemon_threads = True
 
     note = {
