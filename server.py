@@ -24,15 +24,20 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
 import queue
+import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -71,6 +76,93 @@ def extra_dirs() -> list[str]:
 
 
 EXTRA_DIRS = extra_dirs()
+
+
+# ------------------------------------------------------------------ 로그인
+#
+# 폰에서도 들어올 수 있게 열어 두려면 비밀번호가 있어야 한다.
+# 비밀번호가 맞으면 서명된 쪽지(토큰)를 쿠키로 준다. 서명 열쇠는 .mariko-secret에
+# 저장해 두므로 서버를 껐다 켜도 다시 로그인할 필요가 없다.
+
+PASSWORD = os.environ.get("MARIKO_PASSWORD", "")
+COOKIE_NAME = "mariko"
+TOKEN_DAYS = 30
+SECRET_FILE = ROOT / ".mariko-secret"
+
+LOOPBACK = ("127.0.0.1", "localhost", "::1")
+
+MAX_TRIES = 8          # 이 횟수만큼 틀리면
+LOCKOUT = 300          # 이 시간(초) 동안 잠근다
+
+
+def load_secret() -> bytes:
+    try:
+        if SECRET_FILE.exists():
+            key = SECRET_FILE.read_bytes()
+            if len(key) >= 32:
+                return key
+    except OSError:
+        pass
+    key = secrets.token_bytes(32)
+    try:
+        SECRET_FILE.write_bytes(key)
+        os.chmod(SECRET_FILE, 0o600)
+    except OSError as exc:
+        print(f"[마리코] 열쇠 파일을 남기지 못했습니다: {exc}", file=sys.stderr)
+        print("        서버를 껐다 켜면 다시 로그인해야 합니다.", file=sys.stderr)
+    return key
+
+
+SECRET = load_secret()
+
+
+def make_token() -> str:
+    expires = str(int(time.time()) + TOKEN_DAYS * 86400)
+    return f"{expires}.{_sign(expires)}"
+
+
+def _sign(expires: str) -> str:
+    # 비밀번호를 서명에 섞어 둔다. 비밀번호를 바꾸면 옛 쪽지는 자동으로 무효가 된다.
+    return hmac.new(SECRET, f"{expires}:{PASSWORD}".encode(), hashlib.sha256).hexdigest()
+
+
+def token_ok(token: str) -> bool:
+    try:
+        expires, signature = token.split(".", 1)
+        if int(expires) < time.time():
+            return False
+    except (ValueError, AttributeError):
+        return False
+    return hmac.compare_digest(signature, _sign(expires))
+
+
+_TRIES: dict[str, list] = {}
+_TRIES_LOCK = threading.Lock()
+
+
+def locked_out(who: str) -> bool:
+    with _TRIES_LOCK:
+        record = _TRIES.get(who)
+        if not record:
+            return False
+        count, first = record
+        if time.time() - first > LOCKOUT:
+            _TRIES.pop(who, None)
+            return False
+        return count >= MAX_TRIES
+
+
+def note_failure(who: str) -> None:
+    with _TRIES_LOCK:
+        count, first = _TRIES.get(who, (0, time.time()))
+        if time.time() - first > LOCKOUT:
+            count, first = 0, time.time()
+        _TRIES[who] = [count + 1, first]
+
+
+def clear_failures(who: str) -> None:
+    with _TRIES_LOCK:
+        _TRIES.pop(who, None)
 
 
 # ---------------------------------------------------------------- 백엔드 선택
@@ -461,6 +553,26 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
                    "application/json; charset=utf-8")
 
+    def _cookie(self) -> str:
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return ""
+        jar = SimpleCookie()
+        try:
+            jar.load(raw)
+        except Exception:
+            return ""
+        found = jar.get(COOKIE_NAME)
+        return found.value if found else ""
+
+    def authed(self) -> bool:
+        if not PASSWORD:          # 비밀번호를 안 걸었으면 그냥 통과 (로컬 전용)
+            return True
+        return token_ok(self._cookie())
+
+    def _who(self) -> str:
+        return self.client_address[0] if self.client_address else "?"
+
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > MAX_BODY:
@@ -482,6 +594,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, body, "text/html; charset=utf-8")
         elif path == "/api/profile":
+            if not self.authed():
+                self._json({"error": "잠겨 있습니다."}, 401)
+                return
             profile = load_profile()
             profile["backend"] = BACKEND
             profile["model"] = MODEL if BACKEND != "demo" else None
@@ -491,6 +606,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+
+        if path == "/api/login":
+            self.handle_login()
+            return
+        if not self.authed():
+            self._json({"error": "잠겨 있습니다."}, 401)
+            return
+
         if path == "/api/chat":
             self.handle_chat()
         elif path == "/api/stop":
@@ -506,6 +629,39 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"ok": True})
         else:
             self._send(404, b"not found", "text/plain; charset=utf-8")
+
+    # -- 로그인 ------------------------------------------------------
+
+    def handle_login(self):
+        if not PASSWORD:
+            self._json({"ok": True})
+            return
+
+        who = self._who()
+        if locked_out(who):
+            self._json({"error": "너무 여러 번 틀렸습니다. 5분 뒤에 다시 해주세요."}, 429)
+            return
+
+        given = str(self._read_json().get("password") or "")
+        # compare_digest는 한글 같은 non-ASCII 문자열을 그대로 비교하지 못한다.
+        if not hmac.compare_digest(given.encode("utf-8"), PASSWORD.encode("utf-8")):
+            note_failure(who)
+            self._json({"error": "비밀번호가 다릅니다."}, 401)
+            return
+
+        clear_failures(who)
+        body = json.dumps({"ok": True}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header(
+            "Set-Cookie",
+            f"{COOKIE_NAME}={make_token()}; Path=/; Max-Age={TOKEN_DAYS * 86400}; "
+            "HttpOnly; SameSite=Lax",
+        )
+        self.end_headers()
+        self.wfile.write(body)
 
     # -- 채팅 스트림 -------------------------------------------------
 
@@ -576,9 +732,30 @@ class Handler(BaseHTTPRequestHandler):
             session.cancel()
 
 
+def local_ip() -> str:
+    """같은 와이파이에서 이 맥을 가리키는 주소. 실패하면 안내 문구를 돌려준다."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 80))   # 실제로 보내지는 않는다
+        return probe.getsockname()[0]
+    except OSError:
+        return "이-맥의-주소"
+    finally:
+        probe.close()
+
+
 def main() -> None:
     if not ASSISTANT_DIR.is_dir():
         sys.exit(f"[마리코] 비서 폴더가 없습니다: {ASSISTANT_DIR}")
+
+    # 밖에서 들어올 수 있게 열어 두는데 비밀번호가 없으면 켜지 않는다.
+    if HOST not in LOOPBACK and not PASSWORD:
+        sys.exit(
+            "[마리코] 비밀번호 없이 바깥에 열 수는 없습니다.\n"
+            "        같은 와이파이에 있는 누구나 마리코에게 지시할 수 있게 됩니다.\n"
+            "        MARIKO_PASSWORD 를 정하고 다시 실행해 주세요.\n"
+            '        예)  MARIKO_PASSWORD="원하는비밀번호" MARIKO_HOST=0.0.0.0 python3 server.py'
+        )
 
     profile = load_profile()
     server = ThreadingHTTPServer((HOST, PORT), Handler)
@@ -598,11 +775,18 @@ def main() -> None:
         print("  설치돼 있는데도 이 문구가 보이면:  MARIKO_CLAUDE_BIN=$(which claude) python3 server.py")
     if EXTRA_DIRS:
         print("  열어둔 폴더: " + ", ".join(EXTRA_DIRS))
+    if PASSWORD:
+        print("  비밀번호 잠금 켜짐")
+    elif HOST in LOOPBACK:
+        print("  잠금 없음 — 이 맥에서만 열립니다")
     if AUTOSAVE in ("1", "on", "true", "commit"):
         print("  자동 저장 켜짐 — 대화가 끝날 때마다 git에 기록합니다")
     elif AUTOSAVE == "push":
         print("  자동 저장 켜짐 — 대화가 끝날 때마다 git에 기록하고 GitHub에 올립니다")
-    print(f"  http://{HOST}:{PORT}\n")
+    print(f"  http://{'localhost' if HOST in LOOPBACK else HOST}:{PORT}")
+    if HOST not in LOOPBACK:
+        print(f"  폰에서는  http://{local_ip()}:{PORT}")
+    print()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
